@@ -1,4 +1,3 @@
-# encoding: utf-8
 module Paperclip
   # The Attachment class manages the files for a given attachment. It saves
   # when the model saves, deletes when the model is destroyed, and processes
@@ -18,7 +17,7 @@ module Paperclip
       }
     end
 
-    attr_reader :name, :instance, :styles, :default_style, :convert_options, :queued_for_write, :options
+    attr_reader :name, :instance, :styles, :default_style, :convert_options, :queued_for_write, :options, :s3_permissions
 
     # Creates an Attachment object. +name+ is the name of the attachment,
     # +instance+ is the ActiveRecord object instance it's attached to, and
@@ -48,6 +47,7 @@ module Paperclip
       @errors            = {}
       @validation_errors = nil
       @dirty             = false
+      @s3_permissions    = options[:s3_permissions]
 
       normalize_style_definition
       initialize_storage
@@ -77,7 +77,7 @@ module Paperclip
       return nil if uploaded_file.nil?
 
       @queued_for_write[:original]   = uploaded_file.to_tempfile
-      instance_write(:file_name,       uploaded_file.original_filename.strip.gsub(/[^A-Za-z\d\.\-_]+/, '_'))
+      instance_write(:file_name,       uploaded_file.original_filename.strip.gsub(/[^\w\d\.\-]+/, '_'))
       instance_write(:content_type,    uploaded_file.content_type.to_s.strip)
       instance_write(:file_size,       uploaded_file.size.to_i)
       instance_write(:updated_at,      Time.now)
@@ -102,7 +102,12 @@ module Paperclip
     # update time appended to the url
     def url style = default_style, include_updated_timestamp = true
       url = original_filename.nil? ? interpolate(@default_url, style) : interpolate(@url, style)
-      include_updated_timestamp && updated_at ? [url, updated_at].compact.join(url.include?("?") ? "&" : "?") : url
+      url = include_updated_timestamp && updated_at ? [url, updated_at].compact.join(url.include?("?") ? "&" : "?") : url
+      if self.s3_permissions == "authenticated-read"
+        self.s3.interface.get_link(self.s3_bucket.to_s, self.path(style), 15.minutes)
+      else
+        url
+      end
     end
 
     # Returns the path of the attachment as defined by the :path option. If the
@@ -411,4 +416,3 @@ module Paperclip
 
   end
 end
-
